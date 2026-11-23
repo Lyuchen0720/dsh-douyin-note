@@ -93,7 +93,11 @@ const autoMod = await import('../lib/autopilot.mjs')
   assert.ok(autoMod.AUTO_DEFAULTS.musicPool.length >= 2)
   assert.equal(autoMod.dueCheck({ enabled: false }).due, false)
   assert.equal(autoMod.dueCheck({ enabled: true, dayKey: '2000-01-01', perDay: 3 }).due, true)
-  assert.equal(autoMod.dueCheck({ enabled: true, dayKey: new Date().toISOString().slice(0, 10), dayCount: 3, perDay: 3 }).due, false)
+  // dayKey 用的是**本地**日期（按 UTC 算会在北京时间 0–8 点之间对不上）
+  const now0 = new Date()
+  const pad = (x) => String(x).padStart(2, '0')
+  const localDay = `${now0.getFullYear()}-${pad(now0.getMonth() + 1)}-${pad(now0.getDate())}`
+  assert.equal(autoMod.dueCheck({ enabled: true, dayKey: localDay, dayCount: 3, perDay: 3 }).due, false)
   const next = autoMod.nextRunAtFrom({ everyHours: 2 }, new Date('2026-01-01T00:00:00Z'))
   const delta = (new Date(next) - new Date('2026-01-01T00:00:00Z')) / 3600_000
   assert.ok(delta > 1.7 && delta < 2.3, `每 2 小时应落在 1.7~2.3，实际 ${delta}`)
@@ -124,6 +128,50 @@ const renderMod = await import('../lib/render.mjs')
   if (saved === undefined) delete process.env.DSH_HOME
   else process.env.DSH_HOME = saved
   ok('前置依赖：缺「刷抖音」时判定失败并给提示')
+}
+
+/* ── 评论自动回复：挑谁回 / 什么时候看 / 回什么 ── */
+const commentsMod = await import('../lib/comments.mjs')
+const replyMod = await import('../lib/replyauto.mjs')
+{
+  const mk = (cid, text, extra = {}) => ({ cid, text, nickname: '路人', uid: 'u' + cid, unique_id: '', digg: 0, create_time: 100, is_author: false, ...extra })
+  assert.equal(commentsMod.isReplyable(mk('1', '[看][看][看]')), false, '纯 emoji 不回')
+  assert.equal(commentsMod.isReplyable(mk('2', '加我微信送你脚本')), false, '广告不回')
+  assert.equal(commentsMod.isReplyable(mk('3', 'https://x.com/a')), false, '带链接不回')
+  assert.equal(commentsMod.isReplyable(mk('4', '这张图挺有意思的')), true)
+  assert.equal(commentsMod.isReplyable(mk('5', '已回过', ), { repliedCids: new Set(['5']) }), false)
+  assert.equal(commentsMod.isReplyable(mk('6', '作者自己', { is_author: true })), false)
+
+  const picked = commentsMod.pickCandidates([
+    mk('a', '第一条', { create_time: 100, uid: 'u1' }),
+    mk('b', '第二条', { create_time: 300, uid: 'u2' }),
+    mk('c', '同一个人的另一条', { create_time: 200, uid: 'u1' }),
+  ], { limit: 2 })
+  // 同一个人的 a(100) 与 c(200) 只留更新的 c
+  assert.deepEqual(picked.map((c) => c.cid), ['b', 'c'])
+  ok('isReplyable / pickCandidates：跳过 emoji/广告/自己/回过；新的优先，同人只取一条')
+
+  assert.equal(replyMod.replyDue({ enabled: false }).due, false)
+  assert.equal(replyMod.replyDue({ enabled: true, lastCheckAt: null }).due, true)
+  const now = new Date('2026-01-01T10:00:00Z')
+  assert.equal(replyMod.replyDue({ enabled: true, everyMinutes: 60, lastCheckAt: '2026-01-01T09:30:00Z' }, now).due, false)
+  assert.equal(replyMod.replyDue({ enabled: true, everyMinutes: 60, lastCheckAt: '2026-01-01T08:30:00Z' }, now).due, true)
+  assert.ok(replyMod.REPLY_DEFAULTS.enabled === false, '默认关闭')
+  ok('replyDue：默认关 / 没检查过就跑 / 按间隔判断')
+
+  const stub = {
+    stream: async function* () {
+      yield { type: 'text-delta', text: ' “谢谢捧场' }
+      yield { type: 'text-delta', text: '呀～” ' }
+    },
+  }
+  const text = await commentsMod.askReply({
+    llm: stub, route: { provider: 'p', model: 'm' }, persona: '人设',
+    noteTitle: '标题', comment: '好看', nickname: '路人',
+  })
+  assert.equal(text, '谢谢捧场呀～', '应剥掉引号与首尾空白')
+  await assert.rejects(() => commentsMod.askReply({ llm: null }), /llm/)
+  ok('askReply：按人设要一句话 / 剥引号 / 没有模型就报错')
 }
 
 /* ── 包结构 ── */

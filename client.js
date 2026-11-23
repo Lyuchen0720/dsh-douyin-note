@@ -65,17 +65,20 @@ window.__ModuleLoader__.load({
       const [note, setNote] = React.useState('')
       const [busy, setBusy] = React.useState(false)
 
-      const formFrom = (auto) => ({
-        enabled: Boolean(auto?.enabled),
-        publish: Boolean(auto?.publish),
-        everyHours: Number(auto?.everyHours || 24),
-        perDay: Number(auto?.perDay || 1),
-        musicPool: (auto?.musicPool || []).join('，'),
+      const formFrom = (s) => ({
+        enabled: Boolean(s?.auto?.enabled),
+        publish: Boolean(s?.auto?.publish),
+        everyHours: Number(s?.auto?.everyHours || 24),
+        perDay: Number(s?.auto?.perDay || 1),
+        musicPool: (s?.auto?.musicPool || []).join('，'),
+        replyEnabled: Boolean(s?.reply?.config?.enabled),
+        replyEveryMinutes: Number(s?.reply?.config?.everyMinutes || 60),
+        replyPerRun: Number(s?.reply?.config?.perRun || 2),
       })
 
       const adopt = (s) => {
         setState(s)
-        setForm((f) => f || formFrom(s?.auto))
+        setForm((f) => f || formFrom(s))
       }
 
       const load = async () => {
@@ -93,8 +96,13 @@ window.__ModuleLoader__.load({
             everyHours: Number(form.everyHours) || 24,
             perDay: Number(form.perDay) || 1,
             musicPool: String(form.musicPool || '').split(/[,，\s]+/).map((x) => x.trim()).filter(Boolean),
+            reply: {
+              enabled: Boolean(form.replyEnabled),
+              everyMinutes: Number(form.replyEveryMinutes) || 60,
+              perRun: Number(form.replyPerRun) || 2,
+            },
           })
-          adopt(s); setForm(formFrom(s?.auto)); setNote('已保存')
+          adopt(s); setForm(formFrom(s)); setNote('已保存')
           setTimeout(() => setNote(''), 2000)
         } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
       }
@@ -108,7 +116,29 @@ window.__ModuleLoader__.load({
         } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
       }
 
+      const scanReplies = async () => {
+        setBusy(true); setErr(''); setNote('')
+        try {
+          const r = await jpost('/reply/scan', {})
+          adopt(r)
+          const sc = r?.scan || {}
+          setNote(`扫了 ${sc.notes || 0} 条作品、${sc.comments || 0} 条评论，可回 ${(sc.candidates || []).length} 条`)
+        } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
+      }
+
+      const dryReplies = async () => {
+        setBusy(true); setErr(''); setNote('')
+        try {
+          const r = await jpost('/reply/run', { confirm: false })
+          adopt(r)
+          const sent = r?.reply_run?.sent || []
+          setNote(sent.length ? `干跑：拟回 ${sent.length} 条（没发）` : '干跑：这轮没有可回的评论')
+        } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
+      }
+
       const auto = state?.auto
+      const reply = state?.reply
+      const replyCfg = reply?.config || {}
       return h('div', { style: { padding: '4px 2px 18px' } },
         h('div', { style: { fontSize: 15, fontWeight: 600, marginBottom: 4 } }, '抖音图文 · 按频率自己发'),
         h('div', { style: { ...S.hint, marginBottom: 12 } },
@@ -145,6 +175,34 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', style: S.btn, disabled: busy, onClick: runDraft }, '现在生成一条草稿'),
             h('button', { type: 'button', style: S.btn, disabled: busy, onClick: load }, '刷新')),
         ) : null,
+
+        h('div', { style: { ...S.card, marginTop: 4 } },
+          h('div', { style: { fontSize: 14, fontWeight: 600, marginBottom: 6 } }, '评论自动回复'),
+          h('div', { style: { fontSize: 12, color: 'var(--dsh-text-3, #888)', marginBottom: 8 } },
+            '只看本插件自己发出去的图文；每轮最多挑一两条回一句，纯 emoji / 广告 / 已回过的跳过。'),
+          h('div', { style: S.kv }, h('span', { style: S.label }, '状态'),
+            h('span', null, replyCfg.enabled ? h('span', { style: { ...S.tag, borderColor: '#2b6cff', color: '#2b6cff' } }, '开启') : h('span', { style: S.tag }, '关闭'))),
+          h('div', { style: S.kv }, h('span', { style: S.label }, '下一次'), h('span', null, reply?.due?.why || '—')),
+          h('div', { style: S.kv }, h('span', { style: S.label }, '上次检查'), h('span', null, fmt(replyCfg.lastCheckAt))),
+          h('div', { style: S.kv }, h('span', { style: S.label }, '上次结果'), h('span', null,
+            replyCfg.lastResult ? `候选 ${replyCfg.lastResult.candidates || 0} / 回了 ${replyCfg.lastResult.sent || 0}` : '—')),
+          (reply?.recent || []).length ? h('div', { style: { marginTop: 6 } },
+            h('div', { style: { ...S.label, marginBottom: 4 } }, '最近回过'),
+            (reply.recent || []).slice(0, 3).map((r) => h('div', { key: r.cid, style: { fontSize: 12, padding: '2px 0', wordBreak: 'break-all' } },
+              `${r.nickname || '路人'}：${r.comment || ''} → ${r.reply || ''}`))) : null,
+          form ? h('div', { style: { marginTop: 8 } },
+            h(Field, { title: '自动回复', hint: '打开后心跳按间隔自己看评论' },
+              h(Toggle, { on: form.replyEnabled, onChange: (v) => setForm({ ...form, replyEnabled: v }) })),
+            h(Field, { title: '每 N 分钟看一次', hint: '最小 5' },
+              h('input', { type: 'number', min: 5, step: 5, value: form.replyEveryMinutes, style: S.input, onChange: (e) => setForm({ ...form, replyEveryMinutes: e.target.value }) })),
+            h(Field, { title: '每轮最多回几条', hint: '1–5，默认 2' },
+              h('input', { type: 'number', min: 1, max: 5, step: 1, value: form.replyPerRun, style: S.input, onChange: (e) => setForm({ ...form, replyPerRun: e.target.value }) }))) : null,
+          replyCfg.lastError ? h('div', { style: { fontSize: 12, color: '#c0392b', marginTop: 4, wordBreak: 'break-all' } }, replyCfg.lastError) : null,
+          h('div', { style: { display: 'flex', gap: 8, marginTop: 10 } },
+            h('button', { type: 'button', style: S.btn, disabled: busy, onClick: scanReplies }, '扫一遍评论'),
+            h('button', { type: 'button', style: S.btn, disabled: busy, onClick: dryReplies }, '干跑一轮'),
+            h('button', { type: 'button', style: S.btn, disabled: busy, onClick: () => save() }, '保存开关')),
+        ),
 
         note ? h('div', { style: { fontSize: 12, color: '#2b8a3e', marginTop: 6, wordBreak: 'break-all' } }, note) : null,
         err ? h('div', { style: { fontSize: 12, color: '#c0392b', marginTop: 6, wordBreak: 'break-all' } }, err) : null,

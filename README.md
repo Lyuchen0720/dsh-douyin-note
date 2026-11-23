@@ -77,12 +77,13 @@ node <插件目录>/vendor/dsh-douyin-scroll/tools/qr-login.mjs start
 > 为什么共用：创作者中心的登录态是整条链路里唯一「必须真人扫码」的一步；共用同一个 profile，扫码只需要一次，
 > 也避免两个 headless 实例抢同一个 user-data-dir。
 
-## 三个工具
+## 四个工具
 
 | 工具 | 干什么 |
 |---|---|
 | `douyin_note_publish` | 发一条图文（默认干跑预览） |
 | `douyin_note_auto` | 「按频率自己发」：看状态 / 改频率 / 立刻生成一条 |
+| `douyin_note_replies` | 「图文底下挑一两条评论回一句」：看状态 / 扫一遍 / 跑一轮（默认干跑） |
 | `douyin_note_status` | 家目录 / profile / 浏览器 / 最近记录；`check_login:true` 顺带查登录态 |
 
 ### 按频率自己发（`douyin_note_auto`）
@@ -113,14 +114,43 @@ douyin_note_auto action:"run" reason:"试一条"                       # 不等�
 > ⚠️ 自动模式只按**本插件**的 `prompts/persona.md` 写，不读任何外部设定（人设分家）。
 > 模型拿不到时不会静默降级成模板文，而是明确报错并把 `lastError` 写进 state。
 
+### 评论自动回复（`douyin_note_replies`）
+
+只看**本插件自己发出去的作品**（`state.json` 里有 `aweme_id` 的记录，默认最近 7 天）。
+心跳每 60 秒看一次，到点后：读评论 → 过滤 → 挑候选 → 让模型按人设写一句 → 发。
+
+- **跳过**：纯 emoji（`[看][看][看]` 这种）、广告关键词、作者自己、已经回过的 cid、超过 200 字的。
+- **只挑一两条**：默认每轮最多 2 条，同一个人只挑他最新的一条。
+- **去重**：回过的 cid 记在 `state.json` 的 `replies`（最多 300 条），不会重复回。
+- 开关**默认关**；`action:"reply"` 不带 `confirm:true` 就是 dry，只出候选和草稿文案。
+
+| 设置（action=`config`） | 默认 | 说明 |
+|---|---|---|
+| `enabled` | `false` | 总开关 |
+| `everyMinutes` | `60` | 隔多少分钟看一次（最小 5） |
+| `perRun` | `2` | 每轮最多回几条 |
+| `maxAgeDays` | `7` | 只看最近几天的作品 |
+
+```text
+douyin_note_replies action:"status"                                  # 开关、下一次、最近回过什么
+douyin_note_replies action:"scan"                                    # 只读扫一遍，什么也不发
+douyin_note_replies action:"reply"                                   # 干跑：出候选 + 草稿文案
+douyin_note_replies action:"reply" confirm:true                      # 真发（要使用者点头）
+douyin_note_replies action:"config" enabled:true everyMinutes:60 perRun:2
+```
+
+实现上复用包里 vendor 的那套：签名读评论（`tools/dy-signer.mjs`，失败时用无头页面 XHR 兜底），
+发回复走页面上下文里的 `tools/comment-api.mjs`（拿到 `cid` 才算成功）。
+设置页「抖音图文」里也有同一组开关、间隔、每轮条数，外加「扫一遍评论」「干跑一轮」两个按钮。
+
 ### 图形界面：设置 → 抖音图文
 
 插件带一页设置（`client.js`，`settings.section` 的 `id: douyin-note`，排序 32）：
 
-- 状态：自动发布开/关、下一次、上一轮、今天已发 / 上限、本轮说明、最近错误
-- 表单：自动发布开关、每 N 小时、每天上限、只出草稿|直接真发、配乐池
-- 按钮：保存、现在生成一条草稿、刷新
-- 接口：`GET /api/douyin-note/status`、`POST /api/douyin-note/config`、`POST /api/douyin-note/run`
+- 状态：自动发布开/关、下一次、上一轮、今天已发 / 上限、本轮说明、最近错误；评论自动回复的开关、间隔、上次检查与最近回过
+- 表单：自动发布开关、每 N 小时、每天上限、只出草稿|直接真发、配乐池；评论自动回复开关、间隔分钟、每轮条数
+- 按钮：保存、现在生成一条草稿、「扫一遍评论」、「干跑一轮」、刷新
+- 接口：`GET /api/douyin-note/status`、`POST /api/douyin-note/config`、`POST /api/douyin-note/run`、`POST /api/douyin-note/reply/scan`、`POST /api/douyin-note/reply/run`
 
 ⚠️ **新加的 client 半端要重启一次 dsh 才会出现在设置里**（浏览器半端由宿主在启动时扫描
 `package.json` 的 `dsh.client` + 宿主进程里的插件图；光刷新页面不够）。
@@ -162,7 +192,7 @@ dsh plugin --profile desktop add link:<本目录绝对路径>
 
 也可以在插件管理里 `install_bundle` 填对应的 `github:` / `link:` 目标。
 
-装完在工具表里应出现 `douyin_note_publish` / `douyin_note_auto` / `douyin_note_status`，
+装完在工具表里应出现 `douyin_note_publish` / `douyin_note_auto` / `douyin_note_replies` / `douyin_note_status`，
 设置里应多出一页「抖音图文」（client 半端需要**重启一次**才出现）。
 
 ### 登录：扫一次码
@@ -184,7 +214,7 @@ dsh plugin --profile desktop add link:<本目录绝对路径>
 
 ```
 $DSH_HOME/douyin-note/
-├── state.json         # 最近 30 次发布 / 干跑记录
+├── state.json         # 最近 30 次发布 / 干跑记录、回复记录（replies，最多 300）
 ├── runtime.json       # 上次用的 CDP 端口、浏览器路径
 ├── last-preview.png   # 干跑时点发布前的页面截图
 ├── last-publish.png   # 真发成功后的页面截图

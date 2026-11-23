@@ -23,6 +23,8 @@ import { cdpAlive, findBrowser } from './lib/chrome.mjs'
 import { ensureHome, homeDir, profileDir, sharedProfileDir, scrollStatus, usesSharedProfile, readRuntime } from './lib/paths.mjs'
 import { readState } from './lib/state.mjs'
 import { readAuto, patchAuto, dueCheck, runOne, pickMusic, listDrafts } from './lib/autopilot.mjs'
+import { readReplyAuto, patchReplyAuto, replyDue, runReplyPass, scanComments, recentNotes, readReplies } from './lib/replyauto.mjs'
+import { loadPersona } from './lib/draft.mjs'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 
@@ -61,6 +63,14 @@ const STAGE_LABEL = {
   verify: '核对发布请求',
   wait: '等页面状态',
   timeout: '等待超时',
+  comments: '读评论',
+  sign: '评论接口签名',
+  cdp: '页面里读评论',
+  read: '读评论',
+  reply: '发回复',
+  llm: '写回复',
+  parse: '解析子进程输出',
+  spawn: '启动子进程',
 }
 
 function hintFor(err) {
@@ -73,6 +83,9 @@ function hintFor(err) {
   if (stage === 'music') return '配乐是「搜关键词 → 取第一条 → 点使用」。搜不到就换个更常见的歌名/关键词，或先不传 music。'
   if (stage === 'verify') return '浏览器里实际要提交的内容和入参对不上，已被拦下。看 preview 里真实的 text / 图片数。'
   if (stage === 'validate') return '按提示修参数；图片路径要用绝对路径。'
+  if (stage === 'reply') return '发表评论失败：看 error/raw。常见是页面结构变了、账号被限流，或目标评论已被删。'
+  if (stage === 'comments' || stage === 'read' || stage === 'sign' || stage === 'cdp') return '读评论失败：确认「刷抖音」已扫码登录（Cookie 在 $DSH_HOME/douyin-duty/douyin_cookie.txt），并且 signer 依赖装好了。'
+  if (stage === 'llm') return '宿主没给模型（或没配默认模型）：评论自动回复需要模型来写那句话。'
   return '把 error / page_sample / screenshot 一起发出来排查。'
 }
 
@@ -169,7 +182,35 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  const timer = setInterval(() => { tick().catch(() => {}) }, 60_000)
+  /**
+   * 评论自动回复的心跳：跟发布分开（自动发布关了它也能跑）。
+   * 回调里的异常必须自己兜住 —— 未捕获异常会杀掉整个宿主进程。
+   */
+  let replying = false
+  const tickReplies = async () => {
+    if (replying) return
+    const cfg = readReplyAuto()
+    if (!replyDue(cfg).due) return
+    const llm = getLlm()
+    const route = getRoute()
+    if (!llm || !route) {
+      patchReplyAuto({ lastError: '宿主没有给 llm 服务（或没有默认模型），评论自动回复跑不了' })
+      return
+    }
+    replying = true
+    try {
+      const r = await serialize(() => runReplyPass({ llm, route, persona: loadPersona(pluginDir) }))
+      ctx.logger?.info?.(`[douyin-note] 评论自动回复：回了 ${r.result.sent} 条`)
+    } catch (e) {
+      patchReplyAuto({ lastCheckAt: new Date().toISOString(), lastError: String(e?.message || e) })
+      ctx.logger?.warn?.(`[douyin-note] 评论自动回复失败：${e?.message || e}`)
+    } finally { replying = false }
+  }
+
+  const timer = setInterval(() => {
+    tick().catch(() => {})
+    tickReplies().catch(() => {})
+  }, 60_000)
   const stopTimer = () => clearInterval(timer)
   try { ctx.effect?.(() => stopTimer) } catch { /* 没有 effect 就等进程结束 */ }
   try { ctx.on?.('dispose', stopTimer) } catch { /* 同上 */ }
@@ -277,6 +318,74 @@ export function apply(ctx, config = {}) {
   }))
 
   ctx.tools.register(defineTool({
+    name: 'douyin_note_replies',
+    description:
+      '「图文下面挑一两条评论回一句」的控制台。'
+      + '只看本插件自己发出去的作品（state.json 里有 aweme_id 的那几条，默认最近 7 天）。'
+      + '默认每轮最多回 2 条、隔 60 分钟看一次；纯 emoji / 广告 / 已经回过的会跳过。'
+      + 'action=status 看开关与最近回过什么；action=scan 只读扫一遍（不发任何东西）；'
+      + 'action=reply 立刻跑一轮 —— **不带 confirm 只生成候选和回复草稿（dry），带 confirm:true 才真发**；'
+      + 'action=config 改开关/间隔/每轮条数。回复文案由模型按插件自带人设现场写。',
+    parameters: {
+      action: { type: 'string', description: 'status（默认）/ scan（只读）/ reply（跑一轮）/ config（改设置）' },
+      confirm: { type: 'boolean', description: '🔴 reply 用：必须由使用者当场同意后才传 true；不传 = dry，只出草稿不发。' },
+      enabled: { type: 'boolean', description: 'config 用：评论自动回复总开关（默认关）' },
+      everyMinutes: { type: 'number', description: 'config 用：隔多少分钟看一次（最小 5，默认 60）' },
+      perRun: { type: 'number', description: 'config 用：每轮最多回几条（默认 2）' },
+      maxAgeDays: { type: 'number', description: 'config 用：只看最近几天的作品（默认 7）' },
+      limit: { type: 'number', description: 'scan/reply 用：本轮最多挑几条候选（默认取配置里的 perRun）' },
+    },
+    output: textOutput,
+    execute: async (args) => {
+      const action = String(args?.action || 'status')
+      const cfg = readReplyAuto()
+      try {
+        if (action === 'config') {
+          const patch = {}
+          if (typeof args?.enabled === 'boolean') patch.enabled = args.enabled
+          for (const k of ['everyMinutes', 'perRun', 'maxAgeDays']) {
+            if (args?.[k] != null && Number.isFinite(Number(args[k]))) patch[k] = Number(args[k])
+          }
+          const next = patchReplyAuto(patch)
+          return safe({ ok: true, changed: Object.keys(patch), reply: next, due: replyDue(next) })
+        }
+        if (action === 'scan') {
+          const r = await scanComments({ maxAgeDays: cfg.maxAgeDays, limit: Number(args?.limit || cfg.perRun) })
+          return safe({ ok: r.errors.length === 0, ...r, replied_total: readReplies().length })
+        }
+        if (action === 'reply') {
+          const llm = getLlm()
+          const route = getRoute()
+          if (!llm || !route) throw new Error('宿主没有给 llm 服务或没有默认模型，写不了回复')
+          const dry = args?.confirm !== true
+          const r = await serialize(() => runReplyPass({
+            llm, route, persona: loadPersona(pluginDir),
+            dry, limit: Number(args?.limit || cfg.perRun),
+          }))
+          return safe({
+            ok: r.ok,
+            dry_run: dry,
+            message: dry
+              ? '干跑：只生成了回复草稿，没有发出去。确认没问题后带 confirm:true 再跑一次。'
+              : `已回复 ${r.result.sent} 条。`,
+            ...r,
+          })
+        }
+        return safe({
+          ok: true,
+          reply: cfg,
+          due: replyDue(cfg),
+          recent: readReplies().slice(0, 10),
+          notes: recentNotes({ maxAgeDays: cfg.maxAgeDays }),
+          note: '默认关闭；打开后由宿主内每分钟一次的心跳按间隔触发。真发需要 confirm:true（手动）或开关已开（自动）。',
+        })
+      } catch (e) {
+        return safe({ ok: false, action, stage: e?.stage || null, error: String(e?.message || e), hint: hintFor(e), raw: e?.detail || null })
+      }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
     name: 'douyin_note_status',
     description:
       '抖音图文插件的状态：家目录、浏览器 profile（是否共用「刷抖音」的登录态）、无头 Chrome 是否在跑、'
@@ -352,6 +461,7 @@ export function apply(ctx, config = {}) {
       due: dueCheck(auto),
       drafts: listDrafts(8),
       last_publishes: (state.publishes || []).slice(0, 3),
+      reply: { config: readReplyAuto(), due: replyDue(readReplyAuto()), recent: readReplies().slice(0, 5) },
       dependency: scrollStatus(),
     }
   }
@@ -376,7 +486,32 @@ export function apply(ctx, config = {}) {
               }
               if (Array.isArray(body.musicPool)) patch.musicPool = body.musicPool.map(String).filter(Boolean).slice(0, 20)
               patchAuto(patch)
+              if (body.reply && typeof body.reply === 'object') {
+                const rp = {}
+                if (typeof body.reply.enabled === 'boolean') rp.enabled = body.reply.enabled
+                for (const k of ['everyMinutes', 'perRun', 'maxAgeDays']) {
+                  if (body.reply[k] != null && Number.isFinite(Number(body.reply[k]))) rp[k] = Number(body.reply[k])
+                }
+                if (Object.keys(rp).length) patchReplyAuto(rp)
+              }
               return sendJson(res, 200, apiStatus())
+            }
+            if (req.method === 'POST' && p === '/api/douyin-note/reply/scan') {
+              const cfg = readReplyAuto()
+              const r = await scanComments({ maxAgeDays: cfg.maxAgeDays, limit: cfg.perRun })
+              return sendJson(res, 200, { ...apiStatus(), scan: r })
+            }
+            if (req.method === 'POST' && p === '/api/douyin-note/reply/run') {
+              const body = await readJsonBody(req)
+              const cfg = readReplyAuto()
+              const llm = getLlm()
+              const route = getRoute()
+              if (!llm || !route) throw new Error('宿主没有给 llm 服务或没有默认模型')
+              const dry = body.confirm !== true
+              const r = await serialize(() => runReplyPass({
+                llm, route, persona: loadPersona(pluginDir), dry, limit: cfg.perRun,
+              }))
+              return sendJson(res, 200, { ...apiStatus(), reply_run: r })
             }
             if (req.method === 'POST' && p === '/api/douyin-note/run') {
               const body = await readJsonBody(req)
