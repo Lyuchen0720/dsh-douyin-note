@@ -17,7 +17,7 @@
 > 🚀 **第一次装？先看 [部署教程](docs/TUTORIAL.md)** —— 从装插件到扫码、干跑、真发、
 > 开自动发布，一步一步照做；文末还有一张「按 `stage` 查错」的排查表。
 
-## 前置依赖：内置了，不用另装
+## 前置依赖：「刷抖音」（`dsh-douyin-scroll`）
 
 本插件不自带登录流程，发布用的是一份**已经登录过抖音的无头浏览器 profile**：
 
@@ -25,14 +25,54 @@
 $DSH_HOME/douyin-duty/chrome-profile
 ```
 
-为了「装一个就够」，包里**原样带了一份「刷抖音」（`dsh-douyin-scroll`）** —— `vendor/dsh-douyin-scroll/`，MIT，
-来源与更新方式见 `vendor/README.md`。装本插件时它会一起挂进 cordis，只为了三件事：扫码登录、登录态、
-以及它那套已经调通的浏览器 profile。它自己的「自动刷抖音」在随包挂载时是**关掉**的（`autoEnabled: false`）。
+这份 profile 和登录动作都属于「刷抖音」（`dsh-douyin-scroll`）。**推荐先把它单独装好、登录一次，再来装本插件** —— 理由见下面的对照表。
 
-- 本机**已经单独装过**「刷抖音」：包里这份会自动跳过（工具表里已有 `douyin_status` 时不再重复挂），
-  两边共用同一份 profile，不冲突。
-- 还没登录过时，`douyin_note_publish`、`douyin_note_auto` 的 `run`、`douyin_note_status` 的 `check_login`
-  会在 `stage: "dependency"` 直接失败，并告诉你该跑哪条登录命令 —— 不会拿一个没登录的浏览器硬试。
+### 推荐做法：先装「刷抖音」，再装本插件
+
+```bash
+# 1. 先装刷抖音（上游）
+dsh plugin --profile desktop add github:NEWJO123/dsh-douyin-scroll
+
+# 2. 重启 dsh → 进「设置 → 刷抖音」→ 点「装主依赖」，再点「扫码登录」，手机扫一次
+
+# 3. 再装本插件
+dsh plugin --profile desktop add github:Lyuchen0720/dsh-douyin-note
+
+# 4. 再重启一次 dsh
+```
+
+好处：扫码是在**设置页里点按钮**完成的，不用碰命令行；两边共用同一份 profile；本插件包里那份副本会自动跳过。
+
+### 兜底：只装了本插件也能用
+
+包里**原样带了一份「刷抖音」**（`vendor/dsh-douyin-scroll/`，MIT，0.7.10，来源与更新方式见 `vendor/README.md`）。
+本插件被加载时，`cordis.patch.yml` 会把这份副本挂进 cordis —— 只为了扫码登录、登录态和浏览器 profile 三件事，
+它自己的「自动刷抖音」在随包挂载时是**关掉**的（`autoEnabled: false`）。
+
+这时登录要走命令行（会开一次可见的浏览器，扫完自己关）：
+
+```bash
+node <插件目录>/vendor/dsh-douyin-scroll/tools/qr-login.mjs start
+```
+
+### 两条路对比
+
+| | 先装刷抖音（推荐） | 只装本插件（兜底） |
+|---|---|---|
+| 安装命令 | 两条 | 一条 |
+| 扫码登录 | 设置页点「扫码登录」 | 命令行跑 `qr-login.mjs start` |
+| 设置页「刷抖音」 | 有（能装主依赖、看状态） | **没有**（副本只挂宿主半端，不带 `client.js`） |
+| 登录态 / profile | 共用 `douyin-duty/chrome-profile` | 同一份 |
+| 包内副本 | 自动跳过（工具表里已有 `douyin_status`） | 由本插件挂载 |
+| 装主依赖（`curl_cffi` + `httpx`） | 设置页一键装 | 需自己装，**但不影响发图文** |
+
+> 守卫只看工具表里有没有 `douyin_status`，不看刷抖音是否被禁用。所以如果装了刷抖音但**把它禁用了**，
+> 副本也会跳过、结果两边工具都看不到 —— 把刷抖音重新启用即可。
+
+### 没登录时会怎样
+
+`douyin_note_publish`、`douyin_note_auto` 的 `run`、`douyin_note_status` 的 `check_login`
+会在 `stage: "dependency"` 直接失败，并告诉你该跑哪条登录命令 —— 不会拿一个没登录的浏览器硬试。
 
 > 为什么共用：创作者中心的登录态是整条链路里唯一「必须真人扫码」的一步；共用同一个 profile，扫码只需要一次，
 > 也避免两个 headless 实例抢同一个 user-data-dir。

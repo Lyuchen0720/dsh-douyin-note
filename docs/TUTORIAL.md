@@ -2,6 +2,7 @@
 
 > 面向**第一次装的人**。照着从头做到尾，大约 10 分钟（其中装依赖和扫码各占一会儿）。
 >
+> 总顺序：**先装「刷抖音」并扫码 → 再装本插件 → 干跑 → 真发 →（可选）开自动发布**。
 > 插件是干什么的：让 DeepSeek Harness 里的助手帮你**发抖音图文** —— 传图、填标题描述、挂话题、搜配乐、选可见性，最后点真实的「发布」按钮。默认**干跑**（表单填好、点发布，但作品不会发出去），你说「可以」才真发。还能设个频率让它自己写稿、自己配图、自己发。
 
 ---
@@ -20,7 +21,34 @@
 
 ---
 
-## 1. 装插件
+## 1. 装「刷抖音」并登录（**先做这步**）
+
+本插件发图文要用一份登录过抖音的浏览器 profile，那份 profile 和扫码动作都属于「刷抖音」（`dsh-douyin-scroll`）。
+**先把它单独装好、登录一次，再来装本插件** —— 这样扫码是在设置页点按钮完成的，不用碰命令行。
+
+```bash
+dsh plugin --profile desktop add github:NEWJO123/dsh-douyin-scroll
+
+# 装完重启一次 DSH（插件要在启动时组装，光刷新网页不够）
+```
+
+重启后进 **设置 → 刷抖音**：
+
+1. 点 **「装主依赖」**（约 30 秒，会在 `~/.dsh/douyin-duty/.venv` 建独立 Python 环境，装 `curl_cffi` + `httpx`）
+   - 装不动、卡在下载：先点「修复运行环境」再试；还不行就检查网络/代理
+   - 这一步**只影响「刷抖音」自己的取数功能**，发图文本身走浏览器，失败也还能发，但建议装好
+2. 点 **「扫码登录」** —— 会弹出一个真的 Chrome 窗口（唯一会开窗口的地方）：
+   - 手机打开抖音 → 右上角 − → 扫一扫
+   - 扫码 → 手机上点「确认登录」
+   - 电脑上的窗口会自己关掉
+
+登录态存在 `~/.dsh/douyin-duty/chrome-profile`，以后发图文都用它。
+
+> 没装刷抖音、直接装本插件也能跑（包里带了副本），但要改用命令行扫码，见 README 的「兜底」一节。
+
+---
+
+## 2. 装图文插件
 
 打开终端（Windows：PowerShell；macOS：终端），粘贴：
 
@@ -40,34 +68,13 @@ dsh plugin --profile desktop add github:Lyuchen0720/dsh-douyin-note
 
 ---
 
-## 2. 装运行环境（约 30 秒）
+## 3. 确认登录态
 
-进 **设置 → 刷抖音**（注意是「刷抖音」，不是「抖音图文」——前者是本插件自带的登录/浏览器模块，设置页在它那边），点 **「装主依赖」**。
-
-它会在 `~/.dsh/douyin-duty/.venv` 建一个独立 Python 环境，装 `curl_cffi` 和 `httpx`。看到「环境就绪」即可。
-
-> 装不动、卡在下载：先点「修复运行环境」再试；还不行就检查网络/代理。
-> 这一步**只影响「刷抖音」自己的取数功能**，发图文本身用的是浏览器，所以这一步失败也还能发，但建议装好，省得后面排查。
-
----
-
-## 3. 扫码登录（只做一次）
-
-还是 **设置 → 刷抖音**，点 **「扫码登录」**。
-
-会**弹出一个真的 Chrome 窗口**（这是唯一会开窗口的地方），页面停在抖音登录二维码上：
-
-1. 手机打开抖音 → 右上角 −→ 扫一扫
-2. 扫码 → 手机上点「确认登录」
-3. 电脑上的窗口会自己关掉
-
-登录态存在 `~/.dsh/douyin-duty/chrome-profile`，以后发图文都用它。
-
-**验证**：跟助手说
+跟助手说：
 
 > 「douyin_note_status 传 check_login: true」
 
-返回里 `logged_in: true` 就对了。
+返回里 `logged_in: true` 就对了（顺便看一眼 `dependency.ok`，true 表示刷抖音那份 profile 认得出来）。
 
 > 弹窗说「profile 被占用」→ 后台还有个无头浏览器开着。先在设置页停掉正在跑的任务，或者关掉所有 Edge/Chrome 进程再点一次。
 
@@ -167,7 +174,7 @@ dsh plugin --profile desktop add github:Lyuchen0720/dsh-douyin-note
 |---|---|---|
 | 工具表里没有 `douyin_note_*` | 装完没重启 | 完整重启 DSH |
 | 设置里没有「抖音图文」 | 同上，客户端页面要重启才扫描 | 重启 DSH，再刷新网页 |
-| 报 `stage: "dependency"` | 没登录 / profile 不存在 | 做第 2、3 步 |
+| 报 `stage: "dependency"` | 没登录 / profile 不存在 | 做第 1 步（装刷抖音 + 扫码） |
 | 报 `stage: "login"` | Cookie 过期了（一般 1–2 周） | 重新扫码登录一次（第 3 步） |
 | 报 `stage: "upload"` | 图太大 / 格式不对 / 比例太夸张 | 换 jpg/png，单张 <50MB，别发超长图 |
 | 报 `stage: "music"` | 歌名搜不到 | 换个常见歌名，或干脆不传 `music` |
@@ -193,7 +200,7 @@ dsh plugin --profile desktop remove dsh-douyin-note
 ```
 ~/.dsh/douyin-duty/          # 登录 profile（Chrome 用户数据）+ 刷抖音的运行数据
 ├── chrome-profile/          # ← 登录态就在这，删了就要重新扫码
-└── .venv/                   # Python 环境（第 2 步装的）
+└── .venv/                   # Python 环境（第 1 步「装主依赖」建的）
 
 ~/.dsh/douyin-note/          # 本插件自己的东西
 ├── state.json               # 发布记录
@@ -201,7 +208,7 @@ dsh plugin --profile desktop remove dsh-douyin-note
 └── last-*.png               # 截图
 ```
 
-**换抖音账号**：删掉 `~/.dsh/douyin-duty/chrome-profile` 整个目录，再走一次第 3 步扫码。
+**换抖音账号**：删掉 `~/.dsh/douyin-duty/chrome-profile` 整个目录，再走一次第 1 步里的「扫码登录」。
 **彻底清干净**：删掉上面两个目录。
 
 > 🔴 `chrome-profile` 里有你的抖音登录态，**别把它拷给别人、别传网盘**。
