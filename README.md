@@ -188,15 +188,21 @@ $DSH_HOME/douyin-note/
 
 ```
 dsh-douyin-note/
-├── index.js              # 插件入口：Config + 两个工具
-├── cordis.patch.yml      # bundle 挂载（只 insert 一个 host 插件）
+├── index.js              # 插件入口：Config + 三个工具
+├── client.js             # 浏览器半端：设置 → 抖音图文
+├── cordis.patch.yml      # bundle 挂载：本插件 + vendor 里那份「刷抖音」
 ├── lib/
 │   ├── chrome.mjs        # 无头 Chrome / CDP 连接（复用刷抖音的实现）
 │   ├── hostdeps.mjs      # 从宿主树里取 z / defineTool（拿不到有兜底）
-│   ├── paths.mjs         # 家目录 / profile 选择
+│   ├── paths.mjs         # 家目录 / profile 选择 / 前置依赖检查
 │   ├── state.mjs         # 发布记录
+│   ├── draft.mjs         # 让模型写一条草稿（严格 JSON）
+│   ├── render.mjs        # 1080×1440 文字卡渲染
+│   ├── autopilot.mjs     # 按频率自己发的心跳
 │   └── note-publish.mjs  # 发布全流程 + create 请求拦截
-├── README.md
+├── prompts/persona.md    # 大肥鱼人设（只读本插件自己这份）
+├── vendor/dsh-douyin-scroll/  # 原样收录的「刷抖音」0.7.10（MIT）
+├── test/selfcheck.mjs    # 14 项离线自检
 └── icon.svg
 ```
 
