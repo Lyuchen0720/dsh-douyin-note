@@ -15,6 +15,7 @@
     "README.md",
     "icon.svg",
     "assets/",
+    "docs/",
     "vendor/",
     "screenshots.json"
   ],
