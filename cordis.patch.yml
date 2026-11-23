@@ -1,7 +1,24 @@
 # dsh-douyin-note bundle patch
-# 只挂一个 host 插件：douyin_note_publish / douyin_note_status。
-# 不在这里写死 profile 目录 —— 默认共用「刷抖音」插件的 chrome-profile，
+# 挂两个 host 插件：
+#   1) douyin-note —— 本插件（douyin_note_publish / douyin_note_status / douyin_note_auto）
+#   2) douyin-scroll-embedded —— vendor/ 里那套「刷抖音」（登录态来源），装这一个包就够
+#
+# 第二条是一份原样副本（见 vendor/README.md），用相对路径锚定在本 patch 旁边
+# （DSH 的 applyEntryPatches 会把相对 name 解析成 patch 文件同级的 file:// 地址）。
+#
+# disabled 守卫：本机已单独装了「刷抖音」（工具表里已有 douyin_status）就跳过，不重复注册。
+# config 只开「登录态」需要的部分：autoEnabled=false，别让它在后台自己刷、自己发。
+#
+# 不在这里写死 profile 目录 —— 默认共用「刷抖音」的 chrome-profile，
 # 想换在设置里改 profile 字段（或设 DOUYIN_NOTE_PROFILE）。
 - insert:
     - id: douyin-note
       name: dsh-douyin-note
+    - id: douyin-scroll-embedded
+      name: ./vendor/dsh-douyin-scroll/index.js
+      disabled: !!js "!!ctx.get('tools')?.get?.('douyin_status')"
+      config:
+        autoEnabled: false
+        peakValley: false
+        noon: false
+        night: false

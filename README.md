@@ -13,17 +13,25 @@
 | 自动生成的文字卡 | 创作者中心表单（干跑） | 配乐搜索结果 |
 |---|---|---|
 | ![文字卡](docs/screenshots/01-card.png) | ![表单](docs/screenshots/02-editor.png) | ![配乐](docs/screenshots/03-music.png) |
-## 前置依赖（硬性）
+## 前置依赖：内置了，不用另装
 
-**必须先装并登录「刷抖音」插件（`dsh-douyin-scroll`）。** 本插件自己不保存登录态，发布用的就是它那份已经登录好的无头浏览器 profile：
+本插件不自带登录流程，发布用的是一份**已经登录过抖音的无头浏览器 profile**：
 
 ```
 $DSH_HOME/douyin-duty/chrome-profile
 ```
 
-没装它 / 没登录过时，`douyin_note_publish`、`douyin_note_auto` 的 `run`、`douyin_note_status` 的 `check_login` 都会在 `stage: "dependency"` 直接失败，并告诉你先去装「刷抖音」——不会退回去自己开一个没登录的浏览器硬试。
+为了「装一个就够」，包里**原样带了一份「刷抖音」（`dsh-douyin-scroll`）** —— `vendor/dsh-douyin-scroll/`，MIT，
+来源与更新方式见 `vendor/README.md`。装本插件时它会一起挂进 cordis，只为了三件事：扫码登录、登录态、
+以及它那套已经调通的浏览器 profile。它自己的「自动刷抖音」在随包挂载时是**关掉**的（`autoEnabled: false`）。
 
-> 为什么这么设计：创作者中心的登录态是整条链路里唯一「必须真人扫码」的一步；两个插件共用同一个 profile，扫码只需要一次，也避免两个 headless 实例抢同一个 user-data-dir。
+- 本机**已经单独装过**「刷抖音」：包里这份会自动跳过（工具表里已有 `douyin_status` 时不再重复挂），
+  两边共用同一份 profile，不冲突。
+- 还没登录过时，`douyin_note_publish`、`douyin_note_auto` 的 `run`、`douyin_note_status` 的 `check_login`
+  会在 `stage: "dependency"` 直接失败，并告诉你该跑哪条登录命令 —— 不会拿一个没登录的浏览器硬试。
+
+> 为什么共用：创作者中心的登录态是整条链路里唯一「必须真人扫码」的一步；共用同一个 profile，扫码只需要一次，
+> 也避免两个 headless 实例抢同一个 user-data-dir。
 
 ## 三个工具
 
@@ -99,8 +107,8 @@ douyin_note_auto action:"run" reason:"试一条"                       # 不等�
 ## 安装
 
 ```bash
-# 从 GitHub 装
-dsh plugin --profile desktop add github:<owner>/<repo>
+# 一条命令，连「刷抖音」一起装（它已内置在包里，不用再单独装）
+dsh plugin --profile desktop add github:Lyuchen0720/dsh-douyin-note
 
 # 或者本地开发：link 方式，改代码立刻生效
 dsh plugin --profile desktop add link:<本目录绝对路径>
@@ -113,14 +121,18 @@ dsh plugin --profile desktop add link:<本目录绝对路径>
 装完在工具表里应出现 `douyin_note_publish` / `douyin_note_auto` / `douyin_note_status`，
 设置里应多出一页「抖音图文」（client 半端需要**重启一次**才出现）。
 
-### 登录：两条路
+### 登录：扫一次码
 
-1. **已经装了「刷抖音」（`dsh-douyin-scroll`）且登录过** —— 本插件默认共用它的
-   `$DSH_HOME/douyin-duty/chrome-profile`，创作者中心与 www.douyin.com 共用 `.douyin.com`
-   Cookie，一般直接可用。
-2. **没有那个 profile** —— 用 `DOUYIN_NOTE_PROFILE`（或设置页 `profile`）指定一个目录，
-   先用浏览器以 `--user-data-dir=<那个目录>` 打开 https://creator.douyin.com 扫码登录一次，
-   之后插件复用同一份登录态。
+1. **本机已经登录过「刷抖音」** —— 直接可用：本插件共用的就是它的
+   `$DSH_HOME/douyin-duty/chrome-profile`，创作者中心与 www.douyin.com 共用 `.douyin.com` Cookie。
+2. **还没登录** —— 跑包里那套二维码登录（会开一次可见浏览器，扫完就关）：
+
+   ```bash
+   node <插件目录>/vendor/dsh-douyin-scroll/tools/qr-login.mjs start
+   ```
+
+   不想用包里这份、想完全隔离，也可以设 `DOUYIN_NOTE_PROFILE`（或设置页 `profile`）指向另一个目录，
+   先用浏览器以 `--user-data-dir=<那个目录>` 打开 https://creator.douyin.com 扫码登录一次。
 
 验证登录态：`douyin_note_status` 传 `check_login: true`（会打开创作者中心看页面里有没有登录表单）。
 
