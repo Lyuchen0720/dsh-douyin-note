@@ -1,0 +1,68 @@
+{
+  "name": "dsh-douyin-note",
+  "version": "0.4.0",
+  "description": "DeepSeek Harness 抖音图文插件：把本地图片、标题、描述、话题和配乐发成一条抖音图文（默认干跑预览，确认后才真发）；可按频率自己写稿、自己配图、自己发。运行依赖并复用「刷抖音」插件（dsh-douyin-scroll）的登录态。",
+  "type": "module",
+  "main": "index.js",
+  "icon": "icon.svg",
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/",
+    "prompts/",
+    "test/",
+    "cordis.patch.yml",
+    "README.md",
+    "icon.svg",
+    "assets/",
+    "screenshots.json"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "douyin",
+    "抖音",
+    "图文",
+    "creator"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "author": {
+    "name": "Lyuchen0720",
+    "url": "https://github.com/Lyuchen0720"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lyuchen0720/dsh-douyin-note.git"
+  },
+  "homepage": "https://github.com/Lyuchen0720/dsh-douyin-note#readme",
+  "bugs": {
+    "url": "https://github.com/Lyuchen0720/dsh-douyin-note/issues"
+  }
+}

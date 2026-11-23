@@ -1,0 +1,7 @@
+# dsh-douyin-note bundle patch
+# 只挂一个 host 插件：douyin_note_publish / douyin_note_status。
+# 不在这里写死 profile 目录 —— 默认共用「刷抖音」插件的 chrome-profile，
+# 想换在设置里改 profile 字段（或设 DOUYIN_NOTE_PROFILE）。
+- insert:
+    - id: douyin-note
+      name: dsh-douyin-note
