@@ -17,7 +17,8 @@
     "assets/",
     "docs/",
     "vendor/",
-    "screenshots.json"
+    "screenshots.json",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./index.js",
