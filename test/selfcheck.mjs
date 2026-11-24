@@ -174,6 +174,36 @@ const replyMod = await import('../lib/replyauto.mjs')
   ok('askReply：按人设要一句话 / 剥引号 / 没有模型就报错')
 }
 
+/* ── 管理员名单（写进临时 DSH_HOME，别碰真名单）── */
+{
+  const { mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+  const tmp = join(root, '.tmp-admin-test')
+  rmSync(tmp, { recursive: true, force: true })
+  mkdirSync(join(tmp, 'douyin-duty'), { recursive: true })
+  const old = process.env.DSH_HOME
+  process.env.DSH_HOME = tmp
+  const adminsMod = await import('../lib/admins.mjs')
+  assert.deepEqual(Object.keys(adminsMod.PERMS), ['post', 'reply', 'delete', 'config', 'read'])
+  const saved = adminsMod.writeAdmins([
+    { sec_uid: 'A1', nick: '甲', perms: { delete: false } },
+    { sec_uid: 'A1', nick: '甲重复' },
+    { sec_uid: 'A2' },
+    { sec_uid: '' },
+  ])
+  assert.equal(saved.admins.length, 2)
+  assert.equal(saved.admins[0].perms.delete, false)
+  assert.equal(saved.admins[0].perms.post, true, '没写的权限默认给 true')
+  assert.equal(saved.admins[1].nick, '')
+  // 旧形状也能读，且等于全权限
+  writeFileSync(join(tmp, 'douyin-duty', 'admin.json'), JSON.stringify({ uids: ['OLD1'] }))
+  const legacy = adminsMod.readAdmins()
+  assert.equal(legacy.legacy, true)
+  assert.deepEqual(legacy.admins, [{ sec_uid: 'OLD1', nick: '', perms: adminsMod.allPerms() }])
+  rmSync(tmp, { recursive: true, force: true })
+  if (old === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = old
+  ok('admins：去重 / 权限默认开 / 旧 uids 形状兼容')
+}
+
 /* ── 包结构 ── */
 for (const f of ['package.json', 'cordis.patch.yml', 'README.md', 'icon.svg', 'lib/chrome.mjs', 'prompts/persona.md']) {
   assert.ok(existsSync(join(root, f)), `缺文件 ${f}`)

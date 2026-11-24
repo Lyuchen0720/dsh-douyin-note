@@ -1,6 +1,6 @@
 {
   "name": "dsh-douyin-note",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "DeepSeek Harness 抖音图文插件：把本地图片、标题、描述、话题和配乐发成一条抖音图文（默认干跑预览，确认后才真发）；可按频率自己写稿、自己配图、自己发。推荐先装「刷抖音」（dsh-douyin-scroll）并扫码登录一次，登录态共用它的浏览器 profile；包里也内置了它的一份副本作兜底。",
   "type": "module",
   "main": "index.js",

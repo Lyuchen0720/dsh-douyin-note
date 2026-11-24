@@ -64,6 +64,11 @@ window.__ModuleLoader__.load({
       const [err, setErr] = React.useState('')
       const [note, setNote] = React.useState('')
       const [busy, setBusy] = React.useState(false)
+      const [admins, setAdmins] = React.useState(null)
+      const [peers, setPeers] = React.useState([])
+      const [permVocab, setPermVocab] = React.useState({})
+      const [addUid, setAddUid] = React.useState('')
+      const [addNick, setAddNick] = React.useState('')
 
       const formFrom = (s) => ({
         enabled: Boolean(s?.auto?.enabled),
@@ -84,7 +89,15 @@ window.__ModuleLoader__.load({
       const load = async () => {
         try { setErr(''); adopt(await jget('/status')) } catch (e) { setErr(String(e?.message || e)) }
       }
-      React.useEffect(() => { void load() }, [])
+      const loadAdmins = async () => {
+        try {
+          const r = await jget('/admins')
+          setAdmins(r.admins || [])
+          setPeers(r.peers || [])
+          setPermVocab(r.perms || {})
+        } catch (e) { setErr(String(e?.message || e)) }
+      }
+      React.useEffect(() => { void load(); void loadAdmins() }, [])
 
       const save = async () => {
         if (!form) return
@@ -133,6 +146,28 @@ window.__ModuleLoader__.load({
           adopt(r)
           const sent = r?.reply_run?.sent || []
           setNote(sent.length ? `干跑：拟回 ${sent.length} 条（没发）` : '干跑：这轮没有可回的评论')
+        } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
+      }
+
+      const addAdmin = () => {
+        const uid = String(addUid || '').trim()
+        if (!uid) { setErr('先选一个人或粘贴 sec_uid'); return }
+        const perms = {}
+        for (const k of Object.keys(permVocab)) perms[k] = true
+        const next = (admins || []).filter((x) => x.sec_uid !== uid)
+        next.push({ sec_uid: uid, nick: String(addNick || '').trim(), perms })
+        setAdmins(next)
+        setAddUid(''); setAddNick(''); setErr('')
+      }
+
+      const saveAdmins = async () => {
+        setBusy(true); setErr(''); setNote('')
+        try {
+          const r = await jpost('/admins', { admins })
+          setAdmins(r.admins || [])
+          setPeers(r.peers || [])
+          setNote('管理员已保存')
+          setTimeout(() => setNote(''), 2000)
         } catch (e) { setErr(String(e?.message || e)) } finally { setBusy(false) }
       }
 
@@ -203,6 +238,42 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', style: S.btn, disabled: busy, onClick: dryReplies }, '干跑一轮'),
             h('button', { type: 'button', style: S.btn, disabled: busy, onClick: () => save() }, '保存开关')),
         ),
+
+        h('div', { style: { ...S.card, marginTop: 4 } },
+          h('div', { style: { fontSize: 14, fontWeight: 600, marginBottom: 6 } }, '管理员（谁可以对我下指令）'),
+          h('div', { style: { fontSize: 12, color: 'var(--dsh-text-3, #888)', marginBottom: 8 } },
+            '勾上的抖音号私信过来时，属于已授权范围的请求会直接照做；没勾的权限一律不做，等主人来。'),
+          admins === null ? h('div', { style: S.hint }, '读取中…') : (admins.length ? admins.map((a, i) => h('div', { key: a.sec_uid, style: { padding: '6px 0', borderTop: i ? '1px solid var(--dsh-border, #eee)' : 'none' } },
+            h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+              h('span', { style: { fontWeight: 600 } }, a.nick || a.sec_uid.slice(0, 12)),
+              h('span', { style: { fontSize: 11, color: 'var(--dsh-text-3, #888)', wordBreak: 'break-all' } }, a.sec_uid),
+              h('button', { type: 'button', style: { ...S.btn, marginLeft: 'auto', padding: '2px 8px' }, onClick: () => setAdmins(admins.filter((x) => x.sec_uid !== a.sec_uid)) }, '移除')),
+            h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 } },
+              Object.keys(permVocab).map((k) => h('label', { key: k, style: { fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 } },
+                h('input', {
+                  type: 'checkbox',
+                  checked: a.perms?.[k] !== false,
+                  onChange: (e) => setAdmins(admins.map((x) => (x.sec_uid === a.sec_uid ? { ...x, perms: { ...x.perms, [k]: e.target.checked } } : x))),
+                }),
+                permVocab[k]))))) : h('div', { style: S.hint }, '还没有管理员——谁都不能对我下指令。')),
+          h('div', { style: { display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' } },
+            h('select', {
+              style: { ...S.input, maxWidth: 220 },
+              value: peers.some((p) => p.sec_uid === addUid) ? addUid : '',
+              onChange: (e) => {
+                const p = peers.find((x) => x.sec_uid === e.target.value)
+                setAddUid(e.target.value)
+                if (p) setAddNick(p.nick)
+              },
+            },
+              h('option', { value: '' }, '从聊过的人里选…'),
+              peers.map((p) => h('option', { key: p.sec_uid, value: p.sec_uid }, p.nick || p.sec_uid))),
+            h('input', { type: 'text', placeholder: '或粘贴 sec_uid', value: addUid, style: { ...S.input, minWidth: 180 }, onChange: (e) => setAddUid(e.target.value.trim()) }),
+            h('input', { type: 'text', placeholder: '备注昵称（可空）', value: addNick, style: { ...S.input, minWidth: 120 }, onChange: (e) => setAddNick(e.target.value) }),
+            h('button', { type: 'button', style: S.btn, onClick: addAdmin }, '添加')),
+          h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
+            h('button', { type: 'button', style: S.btnPrimary, disabled: busy || admins === null, onClick: saveAdmins }, '保存管理员'),
+            h('button', { type: 'button', style: S.btn, onClick: loadAdmins }, '重新读取'))),
 
         note ? h('div', { style: { fontSize: 12, color: '#2b8a3e', marginTop: 6, wordBreak: 'break-all' } }, note) : null,
         err ? h('div', { style: { fontSize: 12, color: '#c0392b', marginTop: 6, wordBreak: 'break-all' } }, err) : null,

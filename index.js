@@ -25,6 +25,7 @@ import { readState } from './lib/state.mjs'
 import { readAuto, patchAuto, dueCheck, runOne, pickMusic, listDrafts } from './lib/autopilot.mjs'
 import { readReplyAuto, patchReplyAuto, replyDue, runReplyPass, scanComments, recentNotes, readReplies } from './lib/replyauto.mjs'
 import { loadPersona } from './lib/draft.mjs'
+import { readAdmins, writeAdmins, knownPeers, PERMS } from './lib/admins.mjs'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 
@@ -512,6 +513,14 @@ export function apply(ctx, config = {}) {
                 llm, route, persona: loadPersona(pluginDir), dry, limit: cfg.perRun,
               }))
               return sendJson(res, 200, { ...apiStatus(), reply_run: r })
+            }
+            if (req.method === 'GET' && p === '/api/douyin-note/admins') {
+              return sendJson(res, 200, { ok: true, ...readAdmins(), peers: knownPeers(), perms: PERMS })
+            }
+            if (req.method === 'POST' && p === '/api/douyin-note/admins') {
+              const body = await readJsonBody(req)
+              const saved = writeAdmins(body?.admins)
+              return sendJson(res, 200, { ok: true, ...saved, peers: knownPeers(), perms: PERMS })
             }
             if (req.method === 'POST' && p === '/api/douyin-note/run') {
               const body = await readJsonBody(req)
